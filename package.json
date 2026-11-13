@@ -1,0 +1,48 @@
+{
+  "name": "@k3scat/oai-cli",
+  "version": "0.1.0",
+  "description": "OpenAI web search and image generation from the terminal, on a ChatGPT subscription login.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nya-Foundation/oai-cli.git"
+  },
+  "bugs": "https://github.com/Nya-Foundation/oai-cli/issues",
+  "homepage": "https://github.com/Nya-Foundation/oai-cli#readme",
+  "keywords": [
+    "openai",
+    "chatgpt",
+    "codex",
+    "web-search",
+    "image-generation",
+    "cli"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "oai": "dist/oai.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "bun src/cli.ts",
+    "build": "bun build src/cli.ts --target=node --outfile=dist/oai.js",
+    "prepack": "bun run build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test && bun run build && node dist/oai.js --version",
+    "release": "semantic-release"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "semantic-release": "25.0.9",
+    "typescript": "5.9.3"
+  }
+}
