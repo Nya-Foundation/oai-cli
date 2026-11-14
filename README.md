@@ -20,6 +20,10 @@ oai web 'What changed in the latest stable Bun release?'
 oai image 'A coastal town at dusk, wide landscape, no text.' --out coast.png
 oai image 'Image 1: edit target. Image 2: style reference. Recolor Image 1 like Image 2.' \
   --from draft.png --from style.jpg --out revised.png
+
+# A session keeps characters consistent: each call sees the earlier images.
+oai image --session fox 'A small fox mascot with a blue scarf, full body, white background.' --out fox.png
+oai image --session fox 'The same fox holding a red umbrella in the rain.' --out rain.png
 ```
 
 `oai --help` lists every option; `oai image --help` adds the prompting guide.
@@ -46,8 +50,16 @@ uses the same port, so finish one login at a time.
 - **image** writes one PNG and reports its real dimensions. It never
   overwrites, and checks the path before spending a generation. The endpoint
   ignores `size`, `quality` and other model names, so ask for the aspect ratio
-  in the prompt. `--from` switches to the edit endpoint and can be repeated;
-  refer to references as Image 1, Image 2, ... in flag order.
+  in the prompt. `--from` switches to the edit endpoint and takes up to five
+  images; refer to them as Image 1, Image 2, ... in flag order. `--transparent`
+  asks for a transparent background.
+- **image --session NAME** runs the request as one turn of a conversation with
+  `gpt-6.1-sol`, which draws through the hosted image tool and sees every earlier
+  image of that session. One call can return several images (`out-1.png`,
+  `out-2.png`, ...). The model rewrites the prompt before drawing, so say what
+  must stay the same. The transcript is a small file in
+  `~/.config/oai-cli/sessions/`; images are uploaded to the account's file store
+  and cited by id, not sent again. Delete the file to end a session.
 - Errors go to stderr with exit code 1. Requests are not retried.
 
 Both commands call private Codex backend endpoints (`chatgpt.com/backend-api/codex`)

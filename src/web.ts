@@ -60,7 +60,7 @@ export function render(found: Found): string {
 }
 
 export async function searchWeb(query: string, model: string, timeoutSeconds: number): Promise<Found> {
-  const found = collect(await post("web search", "/responses", body(query, model), timeoutSeconds,
+  const found = collect(await post("web search", "/codex/responses", body(query, model), timeoutSeconds,
     "text/event-stream"));
   if (!found.searched && !found.answer) throw new Error("web search failed: the provider ran no search.");
   return found;

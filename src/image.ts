@@ -10,7 +10,7 @@ const MIME: Record<string, string> = {
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
 };
 
-export const IMAGE_HELP = `oai image <prompt> [--out PATH] [--from PATH ...] [--timeout S]
+export const IMAGE_HELP = `oai image <prompt> [--out PATH] [--from PATH ...] [--session NAME] [--transparent] [--timeout S]
 
 Writes one PNG and reports its real dimensions. --out must be a new .png path
 (default oai-<timestamp>.png); missing parents are created, nothing is overwritten.
@@ -18,6 +18,12 @@ Repeat --from for reference images (${Object.keys(MIME).map(ext => ext.slice(1))
 Image 1, Image 2, ... in flag order. Name each role: edit target, subject, style
 or composition reference. References need not be edit targets.
 The prompt is sent unchanged. Pipe it on stdin when it spans several lines.
+
+--session NAME keeps a conversation for consistent characters and style: each call
+sees every earlier image of that session, so "the same character, now ..." works
+without --from. One call can ask for several images; they are saved as PATH-1.png,
+PATH-2.png, ... In a session a chat model rewrites the prompt before drawing, so
+state what must not change. A new NAME starts a new conversation.
 
 Prompting guidance (optional scaffolding, not a required form or model schema):
 - Describe scene/backdrop, subject, key details, constraints, then intended use.
@@ -48,16 +54,46 @@ oai image 'Image 1: edit target. Image 2: style reference. Apply Image 2 colorin
 The result is a saved path, not a displayed picture. Inspect subject, composition,
 text and invariants, then iterate with one targeted change.`;
 
+export const MAX_REFERENCES = 5;
+
 export interface ImageRequest {
   prompt: string;
   out: string;
   /** Reference images; the prompt refers to them as Image 1, Image 2, ... in this order. */
   from: string[];
+  transparent: boolean;
   timeoutSeconds: number;
 }
 
-/** Base64 PNG from the Codex Images JSON, or from a Responses stream. */
-export function collectImage(payload: string): string | undefined {
+export async function readReference(path: string): Promise<{ mime: string; bytes: Buffer }> {
+  const mime = MIME[extname(path).toLowerCase()];
+  if (!mime) throw new Error(`image failed: ${path} is not a png, jpg, webp or gif.`);
+  const bytes = await readFile(path).catch(() => undefined);
+  if (!bytes) throw new Error(`image failed: cannot read ${path}.`);
+  return { mime, bytes };
+}
+
+/** Rejects a request before it is paid for: bad extension, existing output, too many references. */
+export function checkRequest(out: string, from: string[]): void {
+  if (extname(out).toLowerCase() !== ".png") throw new Error("image failed: --out needs a .png extension.");
+  if (existsSync(out)) throw new Error(`image failed: ${out} already exists.`);
+  if (from.length > MAX_REFERENCES) throw new Error(`image failed: --from accepts up to ${MAX_REFERENCES} images.`);
+}
+
+/** Validate and write one base64 PNG without overwriting; returns the line shown to the user. */
+export async function savePng(out: string, data: string): Promise<{ bytes: Buffer; line: string }> {
+  const bytes = Buffer.from(data, "base64");
+  if (bytes.length < 24 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    throw new Error("image failed: the provider returned invalid PNG data.");
+  }
+  await mkdir(dirname(resolve(out)), { recursive: true });
+  await writeFile(out, bytes, { flag: "wx" });
+  return { bytes, line: `Wrote ${out}, ${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}, ${bytes.byteLength} bytes.` };
+}
+
+/** Every base64 PNG in the Codex Images JSON, or in a Responses stream, in output order. */
+export function collectImages(payload: string): string[] {
+  const found: string[] = [];
   let output: unknown[] = [];
   try {
     const json = JSON.parse(payload) as { data?: unknown } | null;
@@ -68,38 +104,25 @@ export function collectImage(payload: string): string | undefined {
     if (typeof result !== "string") continue;
     const data = /^data:image\/[a-z0-9.+-]+;base64,(.+)$/iu.exec(result)?.[1] ?? result;
     // A short partial is not a generated image.
-    if (data.length > 100 && /^[A-Za-z0-9+/=]+$/u.test(data)) return data;
+    if (data.length > 100 && /^[A-Za-z0-9+/=]+$/u.test(data)) found.push(data);
   }
-  return undefined;
+  return found;
 }
 
 /** Generate, or edit when references are given, and save one PNG. Never overwrites. */
 export async function generateImage(request: ImageRequest): Promise<string> {
-  const out = resolve(request.out);
-  if (extname(out).toLowerCase() !== ".png") throw new Error("image failed: --out needs a .png extension.");
-  // Checked before the request so a generation is not paid for and then discarded.
-  if (existsSync(out)) throw new Error(`image failed: ${request.out} already exists.`);
+  checkRequest(request.out, request.from);
   const images = await Promise.all(request.from.map(async path => {
-    const mime = MIME[extname(path).toLowerCase()];
-    if (!mime) throw new Error(`image failed: ${path} is not a png, jpg, webp or gif.`);
-    const bytes = await readFile(path).catch(() => undefined);
-    if (!bytes) throw new Error(`image failed: cannot read ${path}.`);
+    const { mime, bytes } = await readReference(path);
     return { image_url: `data:${mime};base64,${bytes.toString("base64")}` };
   }));
-
-  const data = collectImage(await post("image", images.length ? "/images/edits" : "/images/generations", {
+  const [data] = collectImages(await post("image", `/codex/images/${images.length ? "edits" : "generations"}`, {
     model: MODEL,
     prompt: request.prompt,
-    background: "auto",
+    background: request.transparent ? "transparent" : "auto",
     quality: "auto",
     ...(images.length ? { images } : {}),
   }, request.timeoutSeconds, "application/json"));
   if (!data) throw new Error("image failed: the provider returned no image.");
-  const bytes = Buffer.from(data, "base64");
-  if (bytes.length < 24 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
-    throw new Error("image failed: the provider returned invalid PNG data.");
-  }
-  await mkdir(dirname(out), { recursive: true });
-  await writeFile(out, bytes, { flag: "wx" });
-  return `Wrote ${request.out}, ${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}, ${bytes.byteLength} bytes.`;
+  return (await savePng(request.out, data)).line;
 }

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { accountId, finalOutput } from "../src/codex.ts";
-import { collectImage } from "../src/image.ts";
+import { collectImages } from "../src/image.ts";
+import { outputPaths } from "../src/session.ts";
 import { collect, render } from "../src/web.ts";
 
 const sse = (...events: unknown[]) => events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
@@ -44,10 +45,18 @@ test("web without a search call or answer reports that nothing was searched", ()
 });
 
 test("image data is read from Images JSON and from a Responses stream", () => {
-  expect(collectImage(JSON.stringify({ data: [{ b64_json: PNG_B64 }] }))).toBe(PNG_B64);
-  expect(collectImage(sse(done(0, { type: "image_generation_call", result: `data:image/png;base64,${PNG_B64}` }))))
-    .toBe(PNG_B64);
-  expect(collectImage(JSON.stringify({ data: [{ b64_json: "short" }] }))).toBeUndefined();
+  expect(collectImages(JSON.stringify({ data: [{ b64_json: PNG_B64 }] }))).toEqual([PNG_B64]);
+  const image = { type: "image_generation_call", result: `data:image/png;base64,${PNG_B64}` };
+  expect(collectImages(sse(done(0, image), done(1, message("Done.")), done(2, image)))).toEqual([PNG_B64, PNG_B64]);
+  expect(collectImages(JSON.stringify({ data: [{ b64_json: "short" }] }))).toEqual([]);
+});
+
+test("session outputs are numbered only when there are several, and skip existing files", () => {
+  const none = () => false;
+  expect(outputPaths("a.png", 1, none)).toEqual(["a.png"]);
+  expect(outputPaths("a.png", 2, none)).toEqual(["a-1.png", "a-2.png"]);
+  expect(outputPaths("a.png", 2, path => path === "a-1.png")).toEqual(["a-2.png", "a-3.png"]);
+  expect(outputPaths("a.png", 1, path => path === "a.png")).toEqual(["a-2.png"]);
 });
 
 test("the account id comes from the token's auth claim", () => {

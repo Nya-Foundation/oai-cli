@@ -1,6 +1,6 @@
 import { ORIGINATOR, accessToken } from "./auth.ts";
 
-const BASE_URL = "https://chatgpt.com/backend-api/codex";
+const BASE_URL = "https://chatgpt.com/backend-api";
 const AUTH_CLAIM = "https://api.openai.com/auth";
 
 export function accountId(token: string): string | undefined {
@@ -80,4 +80,27 @@ export function finalOutput(stream: string): { output: unknown[]; types: Set<str
     }
   }
   return { output: [...items].sort(([a], [b]) => a - b).map(([, item]) => item), types };
+}
+
+/** Store bytes in the account's file store and return the id a later request can cite instead of the data. */
+export async function upload(label: string, name: string, bytes: Uint8Array, timeoutSeconds: number): Promise<string> {
+  const created = JSON.parse(await post(label, "/files",
+    { file_name: name, file_size: bytes.byteLength, use_case: "codex" }, timeoutSeconds, "application/json")) as
+    { file_id: string; upload_url: string; upload_headers?: Record<string, string> };
+  const stored = await fetch(created.upload_url, {
+    method: "PUT",
+    headers: { "x-ms-blob-type": "BlockBlob", ...created.upload_headers },
+    body: new Uint8Array(bytes),
+    signal: AbortSignal.timeout(timeoutSeconds * 1000),
+  }).catch(() => undefined);
+  if (!stored?.ok) throw new Error(`${label} failed: could not upload ${name}.`);
+  // The store reports "retry" while it is still registering the blob.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const { status } = JSON.parse(await post(label, `/files/${created.file_id}/uploaded`, {}, timeoutSeconds,
+      "application/json")) as { status?: string };
+    if (status === "success") return created.file_id;
+    if (status !== "retry") break;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error(`${label} failed: the upload of ${name} was not accepted.`);
 }

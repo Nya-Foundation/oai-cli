@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import manifest from "../package.json" with { type: "json" };
 import { login, logout } from "./auth.ts";
 import { IMAGE_HELP, generateImage } from "./image.ts";
+import { sessionImage } from "./session.ts";
 import { DEFAULT_WEB_MODEL, render, searchWeb } from "./web.ts";
 
 const BANNER = `
@@ -24,7 +25,9 @@ const USAGE = `oai <command> [options]
 
   image <prompt>    generate a PNG, or edit from reference images; ask for aspect ratio in the prompt
       --out PATH    new .png path (default oai-<timestamp>.png); never overwrites
-      --from PATH   reference image, repeatable; the prompt names them Image 1, Image 2, ...
+      --from PATH   reference image, up to 5; the prompt names them Image 1, Image 2, ...
+      --session N   continue conversation N, in which the model sees its earlier images
+      --transparent transparent background
       --timeout S   total request limit in seconds (default 300)
       --help        usage and prompting guide; read it before writing a prompt
 
@@ -47,6 +50,8 @@ async function main(): Promise<void> {
       timeout: { type: "string", short: "t", default: "300" },
       out: { type: "string", short: "o" },
       from: { type: "string", short: "f", multiple: true, default: [] },
+      session: { type: "string" },
+      transparent: { type: "boolean", default: false },
     },
   });
   const [command, ...words] = positionals;
@@ -72,12 +77,15 @@ async function main(): Promise<void> {
     return;
   }
   const stamp = new Date().toISOString().replace(/\D/gu, "").slice(0, 14);
-  console.log(await generateImage({
+  const request = {
     prompt: text,
     out: values.out ?? `oai-${stamp}.png`,
     from: values.from,
+    transparent: values.transparent,
     timeoutSeconds,
-  }));
+  };
+  console.log(values.session === undefined ? await generateImage(request)
+    : await sessionImage(values.session, values.model ?? DEFAULT_WEB_MODEL, request));
 }
 
 try {
