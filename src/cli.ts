@@ -26,10 +26,11 @@ const USAGE = `oai <command> [options]
   image <prompt>    generate a PNG, or edit from reference images; ask for aspect ratio in the prompt
       --out PATH    new .png path (default oai-<timestamp>.png); never overwrites
       --from PATH   reference image, up to 5; the prompt names them Image 1, Image 2, ...
-      --session N   continue conversation N, in which the model sees its earlier images
+      --session N   continue conversation N: the model sees its earlier images, for consistent
+                    characters; it rewrites the prompt and can return several images
       --transparent transparent background
       --timeout S   total request limit in seconds (default 300)
-      --help        usage and prompting guide; read it before writing a prompt
+      --help        usage, sessions and prompting guide; read it before writing a prompt
 
   login             sign in with a ChatGPT subscription
   logout            delete the saved login

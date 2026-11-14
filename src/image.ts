@@ -10,20 +10,37 @@ const MIME: Record<string, string> = {
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
 };
 
+export const MAX_REFERENCES = 5;
+
 export const IMAGE_HELP = `oai image <prompt> [--out PATH] [--from PATH ...] [--session NAME] [--transparent] [--timeout S]
 
 Writes one PNG and reports its real dimensions. --out must be a new .png path
 (default oai-<timestamp>.png); missing parents are created, nothing is overwritten.
-Repeat --from for reference images (${Object.keys(MIME).map(ext => ext.slice(1)).join(", ")}). Inputs are numbered
+The prompt is sent unchanged. Pipe it on stdin when it spans several lines.
+--transparent asks for a transparent background.
+
+References
+Repeat --from for up to ${MAX_REFERENCES} reference images (${Object.keys(MIME).map(ext => ext.slice(1)).join(", ")}). Inputs are numbered
 Image 1, Image 2, ... in flag order. Name each role: edit target, subject, style
 or composition reference. References need not be edit targets.
-The prompt is sent unchanged. Pipe it on stdin when it spans several lines.
 
+Sessions
 --session NAME keeps a conversation for consistent characters and style: each call
 sees every earlier image of that session, so "the same character, now ..." works
-without --from. One call can ask for several images; they are saved as PATH-1.png,
-PATH-2.png, ... In a session a chat model rewrites the prompt before drawing, so
-state what must not change. A new NAME starts a new conversation.
+without --from. A new NAME starts a new conversation.
+- One call can ask for several images; they are saved as PATH-1.png, PATH-2.png, ...
+- A chat model (--model, default gpt-6.1-sol) rewrites the prompt before drawing.
+  That helps consistency but the prompt is no longer sent unchanged: state what
+  must stay the same, and use a call without --session for exact prompt control.
+- Start with a plain reference image of the subject (full body, plain background),
+  then ask for scenes. --from still works, to bring outside images into a session.
+- Size and quality are chosen per image and vary between calls of one session.
+- Each generated or referenced image is uploaded to the ChatGPT account's file
+  store and cited by id in later calls. Nothing deletes those uploads.
+- The transcript is ~/.config/oai-cli/sessions/NAME.json; delete it to end the
+  session. If a session stops working because old uploads expired, start a new
+  NAME and pass the saved PNGs with --from.
+- Slower than a single image: allow about 30 seconds per image.
 
 Prompting guidance (optional scaffolding, not a required form or model schema):
 - Describe scene/backdrop, subject, key details, constraints, then intended use.
@@ -48,13 +65,15 @@ Text (verbatim): "<exact text>"
 Constraints: <what must stay or must happen>
 Avoid: <specific unwanted elements>
 
+Example session:
+oai image --session courier 'Character sheet: a young courier with short teal hair, yellow raincoat, round glasses, red satchel. Full body, front view, plain white background, flat vector.' --out sheet.png
+oai image --session courier 'The same courier cycling through a rainy street at night. Keep face, hair, outfit and colors unchanged. Wide landscape.' --out street.png
+
 Example with two inputs:
 oai image 'Image 1: edit target. Image 2: style reference. Apply Image 2 coloring to Image 1; keep its subject and framing unchanged.' --from base.png --from style.jpg --out result.png
 
 The result is a saved path, not a displayed picture. Inspect subject, composition,
 text and invariants, then iterate with one targeted change.`;
-
-export const MAX_REFERENCES = 5;
 
 export interface ImageRequest {
   prompt: string;
